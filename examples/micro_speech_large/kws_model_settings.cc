@@ -10,20 +10,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 /// \file
-/// \brief Visual wakewords model settings.
+/// \brief Settings for visual wakewords model.
 
-#ifndef V0_1_KWS_MODEL_SETTINGS_H_
-#define V0_1_KWS_MODEL_SETTINGS_H_
+#include "kws_model_settings.h"
 
-// All of these values are derived from the values used during model training,
-// if you change your model you'll need to update these constants.
-constexpr int kNumCols = 40;
-constexpr int kNumRows = 49;
-constexpr int kNumChannels = 1;
-
-constexpr int kKwsInputSize = kNumCols * kNumRows * kNumChannels;
-
-constexpr int kCategoryCount = 4;
-extern const char* kCategoryLabels[kCategoryCount];
-
-#endif  // V0_1_KWS_MODEL_SETTINGS_H_
+const char* kCategoryLabels[kCategoryCount] = {
+  "down", "go", "left", "no", "off", "on",
+  "right", "stop", "up", "yes", "silence", "unknown"
+};
+  
