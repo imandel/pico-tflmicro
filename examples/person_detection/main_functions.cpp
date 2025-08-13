@@ -14,6 +14,8 @@ limitations under the License.
 ==============================================================================*/
 
 #include "main_functions.h"
+#include "pico/stdlib.h"
+#include "hardware/timer.h"
 
 #include "detection_responder.h"
 #include "image_provider.h"
@@ -45,6 +47,7 @@ static uint8_t tensor_arena[kTensorArenaSize];
 
 // The name of this function is important for Arduino compatibility.
 void setup() {
+  stdio_init_all();
   // Set up logging. Google style is to avoid globals or statics because of
   // lifetime uncertainty, but since this has a trivial destructor it's okay.
   // NOLINTNEXTLINE(runtime-global-variables)
@@ -96,16 +99,25 @@ void setup() {
 
 // The name of this function is important for Arduino compatibility.
 void loop() {
+  // absolute_time_t start_pre = get_absolute_time();
+  uint64_t preprocessing_start_time = time_us_64();
+
   // Get image from provider.
   if (kTfLiteOk != GetImage(error_reporter, kNumCols, kNumRows, kNumChannels,
                             input->data.int8)) {
     TF_LITE_REPORT_ERROR(error_reporter, "Image capture failed.");
   }
 
+  // absolute_time_t end_pre = get_absolute_time();
+  uint64_t preprocessing_end_time = time_us_64();
+
   // Run the model on this input and make sure it succeeds.
   if (kTfLiteOk != interpreter->Invoke()) {
     TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed.");
   }
+
+  // absolute_time_t end_infer = get_absolute_time();
+  uint64_t inference_end_time = time_us_64();
 
   TfLiteTensor* output = interpreter->output(0);
 
@@ -113,4 +125,16 @@ void loop() {
   int8_t person_score = output->data.uint8[kPersonIndex];
   int8_t no_person_score = output->data.uint8[kNotAPersonIndex];
   RespondToDetection(error_reporter, person_score, no_person_score);
+
+  // absolute_time_t end_post = get_absolute_time();
+  uint64_t postprocessing_end_time = time_us_64();
+
+  // Print out the time taken for each stage in us
+  uint64_t pre_time = preprocessing_end_time - preprocessing_start_time;
+  uint64_t infer_time = inference_end_time - preprocessing_end_time;
+  uint64_t post_time = postprocessing_end_time - inference_end_time;
+  // uint64_t infer_time = absolute_time_diff_us(end_pre, end_infer);
+  // uint64_t post_time = absolute_time_diff_us(end_infer, end_post);
+  printf("Pre-processing: %llu us, Inference: %llu us, Post-processing: %llu us\n", pre_time, infer_time, post_time);
 }
+
