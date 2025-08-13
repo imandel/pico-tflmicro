@@ -6,14 +6,14 @@ echo "Building for Pico W..."
 mkdir -p build_pico1
 cd build_pico1
 cmake -DPICO_BOARD=pico_w ..
-make person_detection micro_speech_small micro_speech_large -j4
+make person_detection micro_speech_small micro_speech_large -j8
 cd ..
 
 echo "Building for Pico 2..."
 mkdir -p build_pico2
 cd build_pico2
 cmake -DPICO_BOARD=pico2 ..
-make person_detection micro_speech_small micro_speech_large -j4
+make person_detection micro_speech_small micro_speech_large -j8
 cd ..
 
 echo "Build complete!"
