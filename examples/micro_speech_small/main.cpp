@@ -1,8 +1,6 @@
 #include <stdio.h>
-#include <limits>
-
+#include <string.h>
 #include "pico/stdlib.h"
-#include "hardware/timer.h"
 
 // TensorFlow Lite Micro includes
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -11,69 +9,69 @@
 #include "tensorflow/lite/micro/system_setup.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
-// Model data
-#include "kws_model_data.h"
-#include "kws_model_settings.h"
+#include "model_config.h"
 
-#define PROFILE_MICRO_SPEECH
-
-// Globals
-// Allocate tensor arena memory
-constexpr int kTensorArenaSize = 28584;
-alignas(16) uint8_t tensor_arena[kTensorArenaSize];
-
-// Function to dequantize int8 to float - matches benchmark implementation
 inline float DequantizeInt8ToFloat(int8_t value, float scale, int zero_point)
 {
     return static_cast<float>(value - zero_point) * scale;
 }
 
-// Function to fill input with a simple pattern - no computation overhead
-void FillInputPattern(int8_t* buffer, size_t size) {
-
-    const int8_t pattern[] = {42, -42, 85, -85};  // 01010101, 10101010 patterns
-    for (size_t i = 0; i < size; i++) {
+void FillInputPattern(int8_t *buffer, size_t size)
+{
+    const int8_t pattern[] = {42, -42, 85, -85}; // 01010101, 10101010 patterns
+    for (size_t i = 0; i < size; i++)
+    {
         buffer[i] = pattern[i % 4];
     }
-
 }
 
-int main()
+
+void Error_Handler(void)
 {
-    // Initialize the Pico
+
+    while (1) {
+        sleep_ms(100);
+    }
+        
+}
+
+int main(void)
+{
     stdio_init_all();
+    
+    // Brief delay to allow stdio to stabilize
+    sleep_ms(1000);
+    
+    printf("\r\n=== Starting %s Model Test ===\r\n", ModelConfig::GetModelName());
 
-    // Wait for serial connection
-    sleep_ms(2000);
+    uint64_t program_start_time = time_us_64();
 
-    printf("Benchmarking Example with Pattern Data\n");
-    unsigned long program_start_time = time_us_64();
-
-    // Map the model into a usable data structure
-    const tflite::Model *model = tflite::GetModel(g_kws_model_data);
+    // Get model from configuration
+    const tflite::Model *model = tflite::GetModel(ModelConfig::GetModelData());
     if (model->version() != TFLITE_SCHEMA_VERSION)
     {
-        MicroPrintf("Model version mismatch!");
-        return 1;
+        printf("The model version of %d does not match the version of the schema of version %d\r\n",
+                    model->version(), TFLITE_SCHEMA_VERSION);
+        Error_Handler();
     }
-    MicroPrintf("Program start time: %llu microseconds", program_start_time);
 
-    tflite::MicroMutableOpResolver<4> resolver;
-    resolver.AddReshape();
-    resolver.AddFullyConnected();
-    resolver.AddDepthwiseConv2D();
-    resolver.AddSoftmax();
+    sleep_ms(2000);
+    printf("Program start time: %llu microseconds\r\n", program_start_time);
+
+    // Create op resolver with model-specific operations
+    tflite::MicroMutableOpResolver<ModelConfig::kOpResolverSize> resolver;
+    ModelConfig::InitializeOpResolver(resolver);
 
     // Create interpreter
     tflite::MicroInterpreter interpreter(
-        model, resolver, tensor_arena, kTensorArenaSize);
+        model, resolver, tensor_arena, ModelConfig::kTensorArenaSize);
 
     // Allocate tensors
     TfLiteStatus allocate_status = interpreter.AllocateTensors();
     if (allocate_status != kTfLiteOk)
     {
-        MicroPrintf("AllocateTensors() failed");
-        return 1;
+        printf("AllocateTensors() failed\r\n");
+        Error_Handler();
     }
 
     // Get input and output tensors
@@ -81,140 +79,126 @@ int main()
     TfLiteTensor *output = interpreter.output(0);
 
     // Print model info
-    printf("Model loaded successfully\n");
-    printf("Input tensor shape: %d x %d x %d\n",
-           kNumRows, kNumCols, kNumChannels);
-    printf("Input size: %d bytes\n", kKwsInputSize);
-    printf("Expected categories: %d\n", kCategoryCount);
+    printf("Model loaded successfully: %s\r\n", ModelConfig::GetModelName());
+    printf("Input size: %d bytes\r\n", ModelConfig::GetInputSize());
+    printf("Expected categories: %d\r\n", ModelConfig::GetCategoryCount());
 
-    // Verify input dimensions match what we expect
-    if (input->bytes != kKwsInputSize)
+    if (input->bytes != ModelConfig::GetInputSize())
     {
-        MicroPrintf("Input tensor size mismatch! Expected: %d, got: %d",
-                    kKwsInputSize, input->bytes);
+        printf("Input tensor size mismatch! Expected: %d, got: %d\r\n",
+                    ModelConfig::GetInputSize(), input->bytes);
     }
 
     // Display tensor information
-    printf("Input tensor type: %d\n", input->type);
-    printf("Input tensor scale: %f\n", input->params.scale);
-    printf("Input tensor zero point: %d\n", input->params.zero_point);
+    printf("Input tensor type: %d\r\n", input->type);
+    printf("Input tensor scale: %f\r\n", input->params.scale);
+    printf("Input tensor zero point: %d\r\n", input->params.zero_point);
 
-    printf("Output tensor type: %d\n", output->type);
-    printf("Output tensor scale: %f\n", output->params.scale);
-    printf("Output tensor zero point: %d\n", output->params.zero_point);
+    printf("Output tensor type: %d\r\n", output->type);
+    printf("Output tensor scale: %f\r\n", output->params.scale);
+    printf("Output tensor zero point: %d\r\n", output->params.zero_point);
 
     // Report arena memory usage
-    printf("Tensor arena memory used: %zu bytes\n", interpreter.arena_used_bytes());
-    printf("Tensor arena memory available: %d bytes\n", kTensorArenaSize);
+    printf("Tensor arena memory used: %lu bytes\r\n", (unsigned long)interpreter.arena_used_bytes());
+    printf("Tensor arena memory available: %d bytes\r\n", ModelConfig::kTensorArenaSize);
 
-    MicroPrintf("Initialization complete");
+    printf("Initialization complete\r\n");
     uint64_t current_time = time_us_64();
-    MicroPrintf("Setup() end time: %llu", current_time);
+    printf("Setup() end time: %llu\r\n", current_time);
     uint64_t setup_time = current_time - program_start_time;
-    MicroPrintf("Setup takes: %llu microseconds", setup_time);
+    printf("Setup takes: %llu microseconds\r\n", setup_time);
 
-    // Benchmarking variables
-#ifdef PROFILE_MICRO_SPEECH
-    static uint32_t prof_count = 0;
-    static uint64_t prof_sum = 0;
-    static uint64_t prof_min = std::numeric_limits<uint64_t>::max();
-    static uint64_t prof_max = 0;
-#endif
+    const int num_inferences = 10;
+    uint64_t total_memcpy_time = 0;
+    uint64_t total_inference_time = 0;
+    uint64_t total_postprocess_time = 0;
 
-    // Main inference loop
-    while (true)
+    for (int i = 0; i < num_inferences; ++i)
     {
         uint64_t loop_start_time = time_us_64();
-        MicroPrintf("New loop starts at: %llu", loop_start_time);
+        printf("\r\nInference %d/%d starts at: %llu\r\n", i + 1, num_inferences, loop_start_time);
 
-        // Fill input with pattern data (minimal overhead)
-        uint64_t data_fill_start_time = time_us_64();
-        FillInputPattern(input->data.int8, input->bytes);
-        uint64_t data_fill_end_time = time_us_64();
-        uint64_t data_fill_time = data_fill_end_time - data_fill_start_time;
-        MicroPrintf("Pattern data fill took: %llu microseconds", data_fill_time);
+        uint64_t memcpy_start_time = time_us_64();
+        // using all zeros for input data
+        memset(input->data.int8, 0, input->bytes);
+        uint64_t memcpy_end_time = time_us_64();
+        uint64_t memcpy_time = memcpy_end_time - memcpy_start_time;
+        total_memcpy_time += memcpy_time;
+        printf("memcpy took: %llu microseconds\r\n", memcpy_time);
 
-        // Run inference
         uint64_t inference_start_time = time_us_64();
         TfLiteStatus invoke_status = interpreter.Invoke();
         if (invoke_status != kTfLiteOk)
         {
-            MicroPrintf("Invoke failed");
+            printf("Invoke failed\r\n");
             sleep_ms(1000);
             continue;
         }
         uint64_t inference_end_time = time_us_64();
         uint64_t inference_time = inference_end_time - inference_start_time;
+        total_inference_time += inference_time;
+        printf("Inference took: %llu microseconds\r\n", inference_time);
 
-        MicroPrintf("Inference took: %llu microseconds", inference_time);
-
-#ifdef PROFILE_MICRO_SPEECH
-        // Update profiling statistics
-        prof_count++;
-        prof_sum += inference_time;
-        if (inference_time < prof_min) prof_min = inference_time;
-        if (inference_time > prof_max) prof_max = inference_time;
-
-        if (prof_count % 100 == 0) {
-            uint64_t prof_avg = prof_sum / prof_count;
-            MicroPrintf("Inference stats after %u runs:", prof_count);
-            MicroPrintf("  Average: %llu us", prof_avg);
-            MicroPrintf("  Min: %llu us", prof_min);
-            MicroPrintf("  Max: %llu us", prof_max);
-        }
-#endif
-
-        // Start timing post-processing
         uint64_t postprocess_start_time = time_us_64();
 
-        // Process results
         printf("Results: [");
-        for (int i = 0; i < output->dims->data[1]; i++)
+        for (int j = 0; j < output->dims->data[1]; j++)
         {
             float converted = DequantizeInt8ToFloat(
-                output->data.int8[i],
+                output->data.int8[j],
                 output->params.scale,
                 output->params.zero_point);
 
             printf("%.3f", converted);
-            if (i < output->dims->data[1] - 1)
+            if (j < output->dims->data[1] - 1)
             {
                 printf(", ");
             }
         }
-        printf("]\n");
+        printf("]\r\n");
 
-        // Find the keyword with highest probability
         int max_idx = 0;
         float max_val = DequantizeInt8ToFloat(
             output->data.int8[0],
             output->params.scale,
             output->params.zero_point);
 
-        for (int i = 1; i < output->dims->data[1]; i++)
+        for (int j = 1; j < output->dims->data[1]; j++)
         {
             float val = DequantizeInt8ToFloat(
-                output->data.int8[i],
+                output->data.int8[j],
                 output->params.scale,
                 output->params.zero_point);
 
             if (val > max_val)
             {
                 max_val = val;
-                max_idx = i;
+                max_idx = j;
             }
         }
 
-        // Use the category labels from the settings
-        printf("Detected keyword: %s (%.3f)\n", kCategoryLabels[max_idx], max_val);
+        // Use the category labels from the model configuration
+        const char **labels = ModelConfig::GetCategoryLabels();
+        printf("Detected: %s (%.3f)\r\n", labels[max_idx], max_val);
 
-        // End timing and report post-processing time
         uint64_t postprocess_end_time = time_us_64();
-        MicroPrintf("Post-processing took: %llu microseconds", 
-                   postprocess_end_time - postprocess_start_time);
+        uint64_t postprocess_time = postprocess_end_time - postprocess_start_time;
+        total_postprocess_time += postprocess_time;
+        printf("Post-processing took: %llu microseconds\r\n", postprocess_time);
+    }
 
-        // Optional: Add small delay for readability
-        // sleep_ms(100);
+    printf("\r\n--- Average latencies after %d inferences ---\r\n", num_inferences);
+    printf("Model: %s\r\n", ModelConfig::GetModelName());
+    printf("Average memcpy time: %.2f microseconds\r\n", (float)total_memcpy_time / num_inferences);
+    printf("Average inference time: %.2f microseconds\r\n", (float)total_inference_time / num_inferences);
+    printf("Average post-processing time: %.2f microseconds\r\n", (float)total_postprocess_time / num_inferences);
+    uint64_t total_avg_time = (total_memcpy_time + total_inference_time + total_postprocess_time) / num_inferences;
+    printf("Average total loop time: %llu microseconds\r\n", total_avg_time);
+
+    while (1)
+    {
+        // Infinite loop - keep LED on to show program is running
+        sleep_ms(1000);
     }
 
     return 0;
